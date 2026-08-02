@@ -1,0 +1,14 @@
+# core
+openai>=1.60
+python-dotenv>=1.0
+PyYAML>=6.0
+Pillow>=10.3
+requests>=2.32
+
+# optional: only needed when script.provider = "anthropic"
+anthropic>=0.69
+
+# optional: only needed for `main.py upload`
+google-api-python-client>=2.140
+google-auth-oauthlib>=1.2
+google-auth-httplib2>=0.2

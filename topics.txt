@@ -1,0 +1,12 @@
+# One topic per line. Lines starting with # are ignored.
+# `main.py run` takes the first topic that isn't already in history.json.
+# `main.py topics --suggest 10` appends fresh LLM-generated ideas here.
+
+Why the Caspian Sea is a lake that everyone calls a sea
+The forgotten Roman road network that still shapes European highways
+How undersea cables actually carry the entire internet
+The town in Norway that uses giant mirrors to see the sun
+Why Japan's train system is almost never late
+The abandoned Soviet city inside the Arctic Circle
+How GPS satellites have to correct for Einstein's relativity
+The reason almost every airport runway number changes over time
