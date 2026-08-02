@@ -26,6 +26,7 @@ from . import (
 )
 from .config import Config, output_root
 from .ffmpeg_utils import probe_duration
+from .progress import ConsoleReporter, Reporter
 
 
 @dataclass
@@ -102,21 +103,23 @@ def produce(
     *,
     topic: str | None = None,
     resume_slug: str | None = None,
+    reporter: Reporter | None = None,
 ) -> Build:
     """Produce one complete video. Returns the finished Build."""
     started = time.time()
+    reporter = reporter or ConsoleReporter()
 
     # ---------------------------------------------------------------- script
+    reporter.begin("script")
     if resume_slug:
         build = _load_or_create(resume_slug, None)
         if not build.plan:
             raise RuntimeError(f"{resume_slug} has no script.json to resume from")
-        print(f"→ resuming {build.slug}")
-        print(f"  title: {build.plan['title']}")
+        reporter.log(f"resuming {build.slug}")
+        reporter.log(f"title: {build.plan['title']}")
     else:
         chosen = ideation.next_topic(cfg, topic)
-        print(f"→ topic: {chosen}")
-        print("→ writing script…")
+        reporter.log(f"topic: {chosen}")
         plan = script.plan(cfg, chosen)
         build = _load_or_create(None, plan)
         (build.root / "script.json").write_text(
@@ -135,61 +138,80 @@ def produce(
             "stages": {},
         }
         build.mark("script", scenes=len(plan["scenes"]), words=plan["word_count"])
-        print(
-            f"  {len(plan['scenes'])} scenes, {plan['word_count']} words "
+        # Record it now, not just on success — a run that is cancelled or dies
+        # partway still needs to show up in the library so it can be resumed.
+        history.record(
+            {
+                "slug": build.slug,
+                "topic": chosen,
+                "title": plan["title"],
+                "created": history.utcnow(),
+                "duration_seconds": 0,
+                "path": str(build.video_path),
+                "complete": False,
+                "published": False,
+            }
+        )
+        reporter.log(
+            f"{len(plan['scenes'])} scenes, {plan['word_count']} words "
             f"(~{script.estimate_seconds(plan) / 60:.1f} min)"
         )
-        print(f"  title: {plan['title']}")
+        reporter.log(f"title: {plan['title']}")
 
     scenes = build.plan["scenes"]
     for path in (build.audio_dir, build.image_dir, build.clip_dir, build.work_dir):
         path.mkdir(parents=True, exist_ok=True)
 
     # ------------------------------------------------------------- narration
-    print("→ narrating…")
-    scene_audio = voice.render_scenes(cfg, scenes, build.audio_dir)
+    reporter.begin("voice")
+    scene_audio = voice.render_scenes(cfg, scenes, build.audio_dir, reporter)
     narration, timings = voice.build_track(cfg, scene_audio, build.work_dir)
     narration_seconds = probe_duration(narration)
     build.manifest["timings"] = timings
     build.mark("voice", seconds=round(narration_seconds, 2))
-    print(f"  narration track: {narration_seconds / 60:.1f} min")
+    reporter.log(f"narration track: {narration_seconds / 60:.1f} min")
 
     # -------------------------------------------------------------- captions
     caption_track = None
     if cfg.get("captions.enabled", True):
         renderer = captions.choose_renderer(cfg)
-        print(f"→ aligning captions ({renderer} renderer)…")
+        reporter.begin("captions", f"({renderer} renderer)")
         words_path = build.work_dir / "words.json"
 
         if words_path.exists():
             words = json.loads(words_path.read_text(encoding="utf-8"))
-            print(f"  {len(words)} word timings cached")
+            reporter.log(f"{len(words)} word timings cached")
         else:
             words = []
-            for scene, audio, timing in zip(scenes, scene_audio, timings):
+            for i, (scene, audio, timing) in enumerate(
+                zip(scenes, scene_audio, timings)
+            ):
+                reporter.substep(i, len(scenes), f"scene {i + 1}/{len(scenes)}")
                 words.extend(captions.scene_words(cfg, scene, audio, timing))
             words_path.write_text(json.dumps(words), encoding="utf-8")
-            print(f"  {len(words)} words timed")
+            reporter.log(f"{len(words)} words timed")
 
         caption_track = captions.build(cfg, words, build.work_dir)
         build.mark("captions", words=len(words), renderer=renderer)
 
     # --------------------------------------------------------------- visuals
-    print("→ generating visuals…")
-    images = visuals.render_scenes(cfg, scenes, build.image_dir)
+    reporter.begin("visuals")
+    images = visuals.render_scenes(cfg, scenes, build.image_dir, reporter)
     build.mark("visuals", images=len(images))
 
     # ---------------------------------------------------------------- motion
-    print("→ rendering clips…")
-    clips, durations = motion.render_all(cfg, images, timings, build.clip_dir)
+    reporter.begin("motion")
+    clips, durations = motion.render_all(cfg, images, timings, build.clip_dir, reporter)
     build.mark("motion", clips=len(clips))
 
     # ----------------------------------------------------------------- audio
-    print("→ mixing audio…")
-    mixed = assemble.mix_audio(cfg, narration, build.work_dir / "final_audio.wav")
+    reporter.begin("audio")
+    mixed = assemble.mix_audio(
+        cfg, narration, build.work_dir / "final_audio.wav", reporter
+    )
 
     # ------------------------------------------------------------- final mux
-    print("→ assembling final video…")
+    reporter.begin("assemble")
     assemble.render(
         cfg,
         clips,
@@ -202,16 +224,16 @@ def produce(
     duration = probe_duration(build.video_path)
     size_mb = build.video_path.stat().st_size / 1_048_576
     build.mark("assemble", seconds=round(duration, 2), size_mb=round(size_mb, 1))
-    print(f"  {build.video_path.name} — {duration / 60:.1f} min, {size_mb:.0f} MB")
+    reporter.log(f"{build.video_path.name} — {duration / 60:.1f} min, {size_mb:.0f} MB")
 
     # ------------------------------------------------------------- thumbnail
     if cfg.get("thumbnail.enabled", True):
-        print("→ drawing thumbnail…")
+        reporter.begin("thumbnail")
         try:
             thumbnail.render(cfg, build.plan, build.thumbnail_path)
             build.mark("thumbnail")
         except Exception as exc:  # noqa: BLE001 - never fail a render over this
-            print(f"  ! thumbnail failed ({exc}); video is fine")
+            reporter.log(f"! thumbnail failed ({exc}); video is fine")
 
     # -------------------------------------------------------------- metadata
     meta = metadata.build(build.plan, timings, duration=duration)
@@ -232,11 +254,11 @@ def produce(
             "created": history.utcnow(),
             "duration_seconds": round(duration, 2),
             "path": str(build.video_path),
-            "published": False,
+            "complete": True,
         }
     )
 
     cost = build.manifest["estimated_cost_usd"]["total"]
-    print(f"✓ done in {elapsed / 60:.1f} min — est. API cost ${cost:.2f}")
-    print(f"  {build.root}")
+    reporter.log(f"done in {elapsed / 60:.1f} min — est. API cost ${cost:.2f}")
+    reporter.log(str(build.root))
     return build

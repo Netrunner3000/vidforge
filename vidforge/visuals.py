@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import Config, optional_key, require_key
+from .progress import Reporter
 
 RETRIES = 3
 _client = None
@@ -146,25 +147,33 @@ def _generate_gradient(cfg: Config, prompt: str, dst: Path) -> None:
 # --------------------------------------------------------------------------
 
 
-def render_scenes(cfg: Config, scenes: list[dict[str, Any]], image_dir: Path) -> list[Path]:
+def render_scenes(
+    cfg: Config,
+    scenes: list[dict[str, Any]],
+    image_dir: Path,
+    reporter: Reporter | None = None,
+) -> list[Path]:
     """Produce (or reuse) one image per scene."""
+    reporter = reporter or Reporter()
     image_dir.mkdir(parents=True, exist_ok=True)
     source = str(cfg.get("visuals.source", "ai")).lower()
     paths: list[Path] = []
+    total = len(scenes)
 
     for scene in scenes:
+        reporter.substep(scene["index"], total, f"scene {scene['index'] + 1}/{total}")
         dst = image_dir / f"scene_{scene['index']:03d}.png"
         if dst.exists() and dst.stat().st_size > 1024:
-            print(f"   scene {scene['index'] + 1}/{len(scenes)} image cached")
+            reporter.log(f"scene {scene['index'] + 1}/{total} image cached")
             paths.append(dst)
             continue
 
-        print(f"   scene {scene['index'] + 1}/{len(scenes)} illustrating…")
+        reporter.log(f"scene {scene['index'] + 1}/{total} illustrating")
         try:
             generate(cfg, source, scene["visual_prompt"], dst)
         except Exception as exc:  # noqa: BLE001 - degrade one scene, not the run
-            print(f"   ! {source} failed for scene {scene['index'] + 1}: {exc}")
-            print("     falling back to a gradient card for this scene")
+            reporter.log(f"! {source} failed for scene {scene['index'] + 1}: {exc}")
+            reporter.log("  falling back to a gradient card for this scene")
             _generate_gradient(cfg, scene["visual_prompt"], dst)
 
         paths.append(dst)

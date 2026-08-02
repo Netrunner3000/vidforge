@@ -2,11 +2,35 @@
 
 Autonomously turns a topic into a finished, narrated, illustrated YouTube video:
 script → voiceover → per-scene imagery → Ken Burns motion → burned-in captions →
-music bed → thumbnail → metadata. One command per video.
+music bed → thumbnail → metadata.
+
+There is a desktop app and a CLI. Both drive the same pipeline.
 
 ```bash
+./build_app.sh                 # builds vidforge.app into /Applications
+python app.py                  # or just run the GUI from the repo
 python main.py run --topic "How undersea cables carry the entire internet"
 ```
+
+## The app
+
+`app.py` is a PySide6 desktop app with four tabs:
+
+- **Produce** — type a topic (or leave it blank to take the next queued one), set
+  length, visuals and voice, then watch it build. Live stage indicators, a
+  progress bar and a streaming log. **Stop** halts cleanly at the next step, and
+  everything finished so far is kept.
+- **Library** — every video produced, with thumbnail, description, tags and
+  chapters. Play it, show the files, resume an unfinished one, or upload it.
+- **Topics** — the queue, editable in place, plus a "Suggest 10 more" button.
+- **Settings** — channel identity, narrator voice, the public-upload switch, API
+  key status and the same environment checks as `main.py doctor`.
+
+`./build_app.sh` bundles it with PyInstaller and installs `/Applications/vidforge.app`.
+The bundled build keeps settings, topics, keys and rendered videos in
+`~/Library/Application Support/vidforge` (seeded on first launch) so a rebuild
+never overwrites your data. Run from the repo instead and everything stays in the
+project folder.
 
 Everything lands in `output/<slug>/`:
 
@@ -32,7 +56,7 @@ python main.py doctor
 `doctor` checks ffmpeg filters, fonts, API keys and Python deps, and tells you
 what's missing before you spend anything.
 
-## Commands
+## CLI
 
 | Command | What it does |
 |---|---|
@@ -89,8 +113,8 @@ narration-only.
 
 ## Uploading
 
-Upload is deliberately **not** part of `run` — nothing reaches YouTube unless you
-invoke it yourself:
+Upload is deliberately **not** part of producing a video — nothing reaches
+YouTube unless you ask for it, from the Library tab or the CLI:
 
 ```bash
 python main.py upload 20260802-1844-norways-giant-mirrors                    # private
@@ -135,8 +159,14 @@ anything:
 ## Layout
 
 ```
+app.py              PySide6 desktop app
+main.py             CLI entry point
+build_app.sh        PyInstaller -> /Applications/vidforge.app
+make_icon.py        draws assets/icon.icns
+
 vidforge/
-├── config.py       paths, .env, config.yaml
+├── config.py       paths, .env, config.yaml (bundle-aware when frozen)
+├── progress.py     stage/cancellation protocol shared by CLI and GUI
 ├── ffmpeg_utils.py binary discovery, probe, concat, filter detection
 ├── llm.py          provider-agnostic JSON completion (openai | anthropic)
 ├── ideation.py     topic queue + LLM idea generation

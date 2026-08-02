@@ -11,6 +11,7 @@ from pathlib import Path
 
 from .config import Config
 from .ffmpeg_utils import ffmpeg
+from .progress import Reporter
 
 DIRECTIONS = ("in", "right", "out", "left", "in", "down", "out", "up")
 ZOOM_MAX = 1.18
@@ -99,6 +100,7 @@ def render_all(
     images: list[Path],
     timings: list[dict[str, float]],
     clip_dir: Path,
+    reporter: Reporter | None = None,
 ) -> tuple[list[Path], list[float]]:
     """Render every scene clip, returning the clips and their exact durations.
 
@@ -106,6 +108,7 @@ def render_all(
     transition, clips are extended by the transition length so the overlap eats
     the padding rather than the content.
     """
+    reporter = reporter or Reporter()
     clip_dir.mkdir(parents=True, exist_ok=True)
     use_xfade = str(cfg.get("video.transition", "xfade")).lower() == "xfade"
     transition = float(cfg.get("video.transition_seconds", 0.6)) if use_xfade else 0.0
@@ -113,8 +116,10 @@ def render_all(
     fps = int(cfg.get("video.fps", 30))
     clips: list[Path] = []
     durations: list[float] = []
+    total = len(images)
 
     for i, (image, timing) in enumerate(zip(images, timings)):
+        reporter.substep(i, total, f"clip {i + 1}/{total}")
         wanted = timing["duration"] + timing.get("gap", 0.0) + transition
         # Quantise to whole frames so the durations we hand to the xfade
         # offset chain are exactly what got encoded — otherwise sub-frame
@@ -124,9 +129,9 @@ def render_all(
 
         dst = clip_dir / f"clip_{i:03d}.mp4"
         if dst.exists() and dst.stat().st_size > 4096:
-            print(f"   clip {i + 1}/{len(images)} cached")
+            reporter.log(f"clip {i + 1}/{total} cached")
         else:
-            print(f"   clip {i + 1}/{len(images)} rendering ({exact:.1f}s)…")
+            reporter.log(f"clip {i + 1}/{total} rendering ({exact:.1f}s)")
             render_clip(cfg, image, exact, dst, i)
         clips.append(dst)
         durations.append(exact)

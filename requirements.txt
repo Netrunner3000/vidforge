@@ -1,4 +1,5 @@
 # core
+PySide6>=6.7        # desktop app (app.py); the CLI works without it
 openai>=1.60
 python-dotenv>=1.0
 PyYAML>=6.0
@@ -12,3 +13,6 @@ anthropic>=0.69
 google-api-python-client>=2.140
 google-auth-oauthlib>=1.2
 google-auth-httplib2>=0.2
+
+# optional: only needed to build the .app bundle (build_app.sh installs it)
+# pyinstaller>=6.10

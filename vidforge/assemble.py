@@ -16,6 +16,7 @@ from .ffmpeg_utils import ffmpeg, ffmpeg_bin, has_filter, probe_duration, run
 
 if TYPE_CHECKING:
     from .captions import CaptionTrack
+    from .progress import Reporter
 
 MUSIC_EXTS = (".mp3", ".m4a", ".wav", ".aac", ".ogg", ".flac")
 
@@ -32,7 +33,9 @@ def pick_music() -> Path | None:
     return random.choice(tracks) if tracks else None
 
 
-def mix_audio(cfg: Config, narration: Path, dst: Path) -> Path:
+def mix_audio(
+    cfg: Config, narration: Path, dst: Path, reporter: "Reporter | None" = None
+) -> Path:
     """Lay a looped music bed under the narration and normalise loudness.
 
     Two things matter for YouTube here:
@@ -43,6 +46,7 @@ def mix_audio(cfg: Config, narration: Path, dst: Path) -> Path:
       quiet audio, so an un-normalised video just plays quieter than everything
       around it. `loudnorm` pins the master to the target.
     """
+    log = reporter.log if reporter else (lambda message: print(f"   {message}"))
     duration = probe_duration(narration)
     normalize = bool(cfg.get("audio.normalize", True))
     target = float(cfg.get("audio.loudness_lufs", -14.0))
@@ -55,10 +59,10 @@ def mix_audio(cfg: Config, narration: Path, dst: Path) -> Path:
     if track is None:
         if not normalize:
             return narration
-        print("   no music bed — normalising narration only")
+        log("no music bed — normalising narration only")
         graph = f"[0:a]aresample=48000{loudnorm}[out]"
     else:
-        print(f"   mixing music bed: {track.name}")
+        log(f"mixing music bed: {track.name}")
         inputs += ["-stream_loop", "-1", "-i", str(track)]
         volume = float(cfg.get("music.volume", 0.13))
         fade_out_at = max(duration - 3, 0)

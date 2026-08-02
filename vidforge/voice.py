@@ -13,6 +13,7 @@ from typing import Any
 
 from .config import Config, require_key
 from .ffmpeg_utils import concat_demux, make_silence, probe_duration, to_wav
+from .progress import Reporter
 
 RETRIES = 3
 _client = None
@@ -45,11 +46,16 @@ def _speak(cfg: Config, text: str, dst: Path) -> None:
             return
         except Exception as exc:  # noqa: BLE001
             message = str(exc)
-            if "insufficient_quota" in message or "exceeded your current quota" in message:
+            if (
+                "insufficient_quota" in message
+                or "exceeded your current quota" in message
+                or "Billing hard limit" in message
+                or "billing_hard_limit_reached" in message
+            ):
                 raise RuntimeError(
-                    "OpenAI account is out of credit — top up at "
-                    "platform.openai.com/settings/billing, then re-run "
-                    "(finished scenes are cached and will be skipped)."
+                    "OpenAI billing limit reached — raise the cap or top up at "
+                    "platform.openai.com/settings/organization/limits, then re-run. "
+                    "Finished scenes are cached and will be skipped."
                 ) from exc
             last = exc
             if attempt < RETRIES:
@@ -58,17 +64,25 @@ def _speak(cfg: Config, text: str, dst: Path) -> None:
     raise RuntimeError(f"TTS failed for a scene after {RETRIES} attempts: {last}")
 
 
-def render_scenes(cfg: Config, scenes: list[dict[str, Any]], audio_dir: Path) -> list[Path]:
+def render_scenes(
+    cfg: Config,
+    scenes: list[dict[str, Any]],
+    audio_dir: Path,
+    reporter: Reporter | None = None,
+) -> list[Path]:
     """Generate (or reuse) one mp3 per scene."""
+    reporter = reporter or Reporter()
     audio_dir.mkdir(parents=True, exist_ok=True)
     paths: list[Path] = []
+    total = len(scenes)
 
     for scene in scenes:
+        reporter.substep(scene["index"], total, f"scene {scene['index'] + 1}/{total}")
         dst = audio_dir / f"scene_{scene['index']:03d}.mp3"
         if dst.exists() and dst.stat().st_size > 1024:
-            print(f"   scene {scene['index'] + 1}/{len(scenes)} narration cached")
+            reporter.log(f"scene {scene['index'] + 1}/{total} narration cached")
         else:
-            print(f"   scene {scene['index'] + 1}/{len(scenes)} narrating…")
+            reporter.log(f"scene {scene['index'] + 1}/{total} narrating")
             _speak(cfg, scene["narration"], dst)
         paths.append(dst)
 
