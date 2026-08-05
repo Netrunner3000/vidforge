@@ -139,6 +139,55 @@ python main.py schedule --at 03:30 --count 1
 writes a launchd plist and prints the two commands to install it. The scheduled
 job renders only — uploads stay manual.
 
+## Roadmap
+
+- **Trend scanner** — a Scanner tab (and `main.py scan`) listing what is pulling
+  the most views on YouTube right now, with the metrics that matter, and a
+  "Send to queue" button on each row that drops a topic straight into
+  `topics.txt`.
+
+  *Data source:* YouTube Data API v3 `videos.list(chart="mostPopular")` — the
+  official trending endpoint. It reads public data, so it needs only a plain API
+  key (`YOUTUBE_API_KEY`), **not** the OAuth client used for uploading. Costs 1
+  quota unit per call against the default 10,000/day, so scanning is effectively
+  free. Scoped by `regionCode` and `videoCategoryId`; 50 results per page, 200
+  per chart.
+
+  *Metrics to show.* Straight from the API: views, likes, comments, published-at,
+  duration, channel, category, tags. The derived ones carry the actual signal and
+  are what "at the moment" really means:
+  - **views per hour since publish** — velocity, so a 3-day-old video with 2M
+    views doesn't outrank a 6-hour-old one climbing faster
+  - **engagement rate** — (likes + comments) / views
+  - **views per subscriber** — did the topic travel beyond the channel's base, or
+    is it just a big channel posting?
+  - **duration bucket** — whether the format winning right now is short, mid or
+    long-form
+  - **age** — days since publish, to separate a spike from a slow burn
+
+  *Topics, not just videos.* The chart returns individual videos, so titles and
+  tags need clustering into topic labels with aggregate view totals — the
+  existing LLM backend (`vidforge/llm.py`) can do this in one structured call,
+  the same way `ideation.suggest` works today.
+
+  *Cache* each scan to `output/trends/<date>.json`: it keeps repeat opens off the
+  quota, and once there are two snapshots it enables week-over-week deltas, which
+  are more useful than any single-day ranking.
+
+  *Two honest limits to keep in view.* This is trending **videos in a region**,
+  not search demand — Google Trends has no official API and `pytrends` is
+  unofficial and rate-limited, so treat the chart as a proxy. And chasing
+  whatever spikes today is precisely the mass-produced-repetition pattern
+  YouTube demonetises (see below); the value here is spotting durable topic
+  veins inside your own niche, not copying the chart.
+
+### Known gaps
+
+- `visuals.source: pexels` is implemented but has never been run — there was no
+  `PEXELS_API_KEY` available when it was built.
+- `video.transition: cut` is implemented and compiles into the filter graph, but
+  only the `xfade` path has been exercised end to end.
+
 ## Before you point this at a real channel
 
 Two things worth knowing, because they determine whether any of this earns
