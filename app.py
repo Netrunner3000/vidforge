@@ -40,9 +40,12 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
+    QHeaderView,
     QScrollArea,
     QSpinBox,
     QTabWidget,
+    QTableWidget,
+    QTableWidgetItem,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -127,10 +130,7 @@ QCheckBox::indicator {
     width: 16px; height: 16px;
     border: 1px solid #b6bccb; border-radius: 4px; background: #ffffff;
 }
-QCheckBox::indicator:checked {
-    background: #2f6fed; border: 1px solid #2f6fed;
-    image: url(none);
-}
+QCheckBox::indicator:checked { background: #2f6fed; border: 1px solid #2f6fed; }
 QCheckBox::indicator:hover { border: 1px solid #2f6fed; }
 QProgressBar {
     border: none; border-radius: 5px; background: #e5e7eb;
@@ -933,6 +933,350 @@ class TopicsTab(QWidget):
 
 
 # ----------------------------------------------------------------------------
+# Scanner tab
+# ----------------------------------------------------------------------------
+
+
+class ScanWorker(QThread):
+    done = Signal(object)
+    failed = Signal(str, bool)   # message, is_missing_key
+    log = Signal(str)
+
+    def __init__(self, cfg: Config, region: str, category: str | None, limit: int,
+                 cluster: bool, refresh: bool):
+        super().__init__()
+        self.cfg = cfg
+        self.region = region
+        self.category = category
+        self.limit = limit
+        self.cluster = cluster
+        self.refresh = refresh
+        self.reporter = Reporter()
+        self.reporter.on_log = self.log.emit  # type: ignore[method-assign]
+
+    def stop(self) -> None:
+        self.reporter.cancel()
+
+    def run(self) -> None:  # noqa: D102
+        from vidforge import trends
+
+        try:
+            result = trends.scan(
+                self.cfg,
+                region=self.region,
+                category_id=self.category,
+                limit=self.limit,
+                cluster=self.cluster,
+                refresh=self.refresh,
+                reporter=self.reporter,
+            )
+            self.done.emit(result)
+        except Cancelled:
+            self.failed.emit("Scan stopped.", False)
+        except Exception as exc:  # noqa: BLE001
+            from vidforge.trends import MissingKey
+
+            self.failed.emit(str(exc), isinstance(exc, MissingKey))
+
+
+# YouTube's category ids are stable across regions for the ones we care about.
+CATEGORIES = [
+    ("All categories", None),
+    ("Education", "27"),
+    ("Science & Technology", "28"),
+    ("News & Politics", "25"),
+    ("Travel & Events", "19"),
+    ("Howto & Style", "26"),
+    ("Entertainment", "24"),
+    ("People & Blogs", "22"),
+    ("Gaming", "20"),
+    ("Sports", "17"),
+]
+
+REGIONS = ["US", "GB", "DE", "FR", "CA", "AU", "IN", "JP", "BR", "NL", "SE", "ES", "IT"]
+
+COLUMNS = [
+    ("Views/h", "The real 'right now' signal: views divided by hours since publish."),
+    ("Views", "Lifetime views. A big number on an old video is not momentum."),
+    ("Engage", "(likes + comments) / views."),
+    ("V/sub", "Views per subscriber — did it travel beyond the channel's own base?"),
+    ("Age", "Time since publish."),
+    ("Format", "Duration bucket — what length is winning right now."),
+    ("Category", "YouTube's own category."),
+    ("Channel", "Uploader."),
+    ("Title", "Video title. Double-click a row to open it on YouTube."),
+]
+
+
+class MetricItem(QTableWidgetItem):
+    """Table cell that sorts on its underlying value, not its formatted text.
+
+    Without this, clicking "Views" sorts the *strings* — putting "999" above
+    "2.4M" — which quietly inverts the ranking the whole tab exists to show.
+    """
+
+    def __init__(self, text: str, sort_key):
+        super().__init__(text)
+        self._key = sort_key
+
+    def __lt__(self, other: QTableWidgetItem) -> bool:
+        if isinstance(other, MetricItem):
+            mine, theirs = self._key, other._key
+            if isinstance(mine, str) != isinstance(theirs, str):
+                return str(mine) < str(theirs)
+            return mine < theirs
+        return super().__lt__(other)
+
+
+class ScannerTab(QWidget):
+    def __init__(self, window: "MainWindow"):
+        super().__init__()
+        self.window = window
+        self.worker: ScanWorker | None = None
+        self.scan = None
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(14)
+
+        controls = Card(
+            "What's pulling views right now",
+            "Reads YouTube's official trending chart. Needs a plain YOUTUBE_API_KEY "
+            "— not the OAuth client used for uploading. A scan costs ~4 of the "
+            "10,000 daily quota units and is cached for 6 hours.",
+        )
+
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        self.region = QComboBox()
+        self.region.addItems(REGIONS)
+        self.category = QComboBox()
+        for label, value in CATEGORIES:
+            self.category.addItem(label, value)
+        self.limit = QSpinBox()
+        self.limit.setRange(10, 200)
+        self.limit.setSingleStep(10)
+        self.cluster_on = QCheckBox("Group into topics")
+        self.cluster_on.setChecked(True)
+
+        row.addWidget(QLabel("Region"))
+        row.addWidget(self.region)
+        row.addWidget(QLabel("Category"))
+        row.addWidget(self.category)
+        row.addWidget(QLabel("Videos"))
+        row.addWidget(self.limit)
+        row.addWidget(self.cluster_on)
+        row.addStretch()
+        controls.body(row)
+
+        buttons = QHBoxLayout()
+        self.scan_btn = QPushButton("Scan")
+        self.scan_btn.clicked.connect(lambda: self.start(refresh=False))
+        self.refresh_btn = secondary("Force refresh")
+        self.refresh_btn.clicked.connect(lambda: self.start(refresh=True))
+        buttons.addWidget(self.scan_btn)
+        buttons.addWidget(self.refresh_btn)
+        buttons.addStretch()
+        self.status = QLabel("Not scanned yet")
+        self.status.setObjectName("Hint")
+        buttons.addWidget(self.status)
+        controls.body(buttons)
+        outer.addWidget(controls)
+
+        # ---- results table ------------------------------------------------
+        table_card = Card(
+            "Trending videos",
+            "Sorted by velocity, not lifetime views. Click a column header to "
+            "re-sort; double-click a row to open it on YouTube.",
+        )
+        self.table = QTableWidget(0, len(COLUMNS))
+        self.table.setHorizontalHeaderLabels([name for name, _ in COLUMNS])
+        for i, (_, tip) in enumerate(COLUMNS):
+            self.table.horizontalHeaderItem(i).setToolTip(tip)
+        self.table.setSortingEnabled(True)
+        self.table.setAlternatingRowColors(True)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setMinimumHeight(300)
+        self.table.horizontalHeader().setSectionResizeMode(
+            len(COLUMNS) - 1, QHeaderView.Stretch
+        )
+        self.table.cellDoubleClicked.connect(self.open_video)
+        table_card.body(self.table)
+        outer.addWidget(table_card)
+
+        # ---- clusters -----------------------------------------------------
+        cluster_card = Card(
+            "Topic veins",
+            "The chart lists videos; these are the themes underneath, ranked by "
+            "average velocity. Select one and send its suggestion to the queue.",
+        )
+        self.clusters = QListWidget()
+        self.clusters.setMinimumHeight(190)
+        cluster_card.body(self.clusters)
+
+        cluster_row = QHBoxLayout()
+        self.queue_btn = QPushButton("Send suggestion to queue")
+        self.queue_btn.clicked.connect(self.queue_selected)
+        self.queue_all_btn = secondary("Queue all suggestions")
+        self.queue_all_btn.clicked.connect(self.queue_all)
+        cluster_row.addWidget(self.queue_btn)
+        cluster_row.addWidget(self.queue_all_btn)
+        cluster_row.addStretch()
+        cluster_card.body(cluster_row)
+        outer.addWidget(cluster_card)
+        outer.addStretch()
+
+        self.region.setCurrentText(str(window.cfg.get("trends.region", "US")))
+        self.limit.setValue(int(window.cfg.get("trends.limit", 50)))
+        self.set_busy(False)
+        self.load_last_scan()
+
+    # -- data -------------------------------------------------------------
+    def load_last_scan(self) -> None:
+        """Show the newest cached scan so the tab is not empty on open."""
+        from vidforge import trends
+
+        files = trends.history_files()
+        if not files:
+            return
+        try:
+            data = json.loads(files[-1].read_text(encoding="utf-8"))
+            self.populate(trends.Scan.from_dict(data), cached=True)
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            pass
+
+    def set_busy(self, busy: bool) -> None:
+        self.scan_btn.setEnabled(not busy)
+        self.refresh_btn.setEnabled(not busy)
+        has_clusters = bool(self.clusters.count())
+        self.queue_btn.setEnabled(not busy and has_clusters)
+        self.queue_all_btn.setEnabled(not busy and has_clusters)
+
+    def start(self, refresh: bool = False) -> None:
+        self.set_busy(True)
+        self.status.setText("Scanning…")
+        self.worker = ScanWorker(
+            self.window.cfg,
+            self.region.currentText(),
+            self.category.currentData(),
+            self.limit.value(),
+            self.cluster_on.isChecked(),
+            refresh,
+        )
+        self.worker.done.connect(self.on_done)
+        self.worker.failed.connect(self.on_failed)
+        self.worker.log.connect(self.status.setText)
+        self.worker.start()
+
+    def on_done(self, scan) -> None:
+        self.populate(scan, cached=False)
+        self.set_busy(False)
+
+    def on_failed(self, message: str, missing_key: bool) -> None:
+        self.set_busy(False)
+        self.status.setText("Scan failed")
+        if missing_key:
+            QMessageBox.information(self, "YouTube API key needed", message)
+        else:
+            QMessageBox.warning(self, "Scan failed", message)
+
+    def populate(self, scan, *, cached: bool) -> None:
+        from vidforge import trends
+
+        self.scan = scan
+        self.table.setSortingEnabled(False)
+        self.table.setRowCount(len(scan.videos))
+
+        for row, video in enumerate(scan.videos):
+            age = (
+                f"{video.age_hours:.0f}h"
+                if video.age_hours < 72
+                else f"{video.age_hours / 24:.0f}d"
+            )
+            values = [
+                (trends.compact(video.views_per_hour), video.views_per_hour),
+                (trends.compact(video.views), video.views),
+                (f"{video.engagement_rate * 100:.1f}%", video.engagement_rate),
+                (
+                    f"{video.views_per_subscriber:.2f}" if video.subscribers else "—",
+                    video.views_per_subscriber,
+                ),
+                (age, video.age_hours),
+                (video.bucket, video.duration_seconds),
+                (video.category, video.category),
+                (video.channel, video.channel),
+                (video.title, video.title),
+            ]
+            for col, (text, sort_key) in enumerate(values):
+                item = MetricItem(text, sort_key)
+                item.setToolTip(video.title)
+                self.table.setItem(row, col, item)
+
+        self.table.setSortingEnabled(True)
+        self.table.resizeColumnsToContents()
+        self.table.horizontalHeader().setSectionResizeMode(
+            len(COLUMNS) - 1, QHeaderView.Stretch
+        )
+
+        self.clusters.clear()
+        for cluster in scan.clusters:
+            self.clusters.addItem(
+                QListWidgetItem(
+                    f"{cluster.label}  —  {cluster.videos} videos · "
+                    f"{trends.compact(cluster.total_views)} views · "
+                    f"{trends.compact(cluster.avg_views_per_hour)}/h avg\n"
+                    f"{cluster.why_it_travels}\n"
+                    f"→ {cluster.suggested_topic}"
+                )
+            )
+        if self.clusters.count():
+            self.clusters.setCurrentRow(0)
+
+        when = scan.fetched_at.replace("T", " ")[:16]
+        source = "cached" if cached else f"{scan.quota_units} quota units"
+        self.status.setText(
+            f"{len(scan.videos)} videos · {scan.region} · {when} · {source}"
+        )
+        self.set_busy(False)
+
+    # -- actions ----------------------------------------------------------
+    def open_video(self, row: int, _col: int) -> None:
+        if not self.scan:
+            return
+        title_item = self.table.item(row, len(COLUMNS) - 1)
+        if not title_item:
+            return
+        title = title_item.text()
+        for video in self.scan.videos:
+            if video.title == title:
+                subprocess.run(["open", video.url], check=False)
+                return
+
+    def queue_selected(self) -> None:
+        row = self.clusters.currentRow()
+        if not self.scan or not (0 <= row < len(self.scan.clusters)):
+            return
+        self._queue([self.scan.clusters[row].suggested_topic])
+
+    def queue_all(self) -> None:
+        if not self.scan:
+            return
+        self._queue([c.suggested_topic for c in self.scan.clusters])
+
+    def _queue(self, topics: list[str]) -> None:
+        added = ideation.append_to_queue([t for t in topics if t])
+        self.window.topics_tab.load()
+        QMessageBox.information(
+            self,
+            "Added to queue",
+            f"Added {added} topic(s) to the queue."
+            + ("" if added else "\n\nThey were already queued."),
+        )
+
+
+# ----------------------------------------------------------------------------
 # Settings tab
 # ----------------------------------------------------------------------------
 
@@ -1050,6 +1394,7 @@ class SettingsTab(QWidget):
                     ("OPENAI_API_KEY", "required: script, narration, images, captions"),
                     ("ANTHROPIC_API_KEY", "optional: Claude script writer"),
                     ("PEXELS_API_KEY", "optional: stock visuals"),
+                    ("YOUTUBE_API_KEY", "optional: the Scanner tab"),
                 )
             )
         )
@@ -1069,6 +1414,7 @@ class SettingsTab(QWidget):
             ("OPENAI_API_KEY", "script, narration, images, captions"),
             ("ANTHROPIC_API_KEY", "optional Claude script writer"),
             ("PEXELS_API_KEY", "optional stock visuals"),
+            ("YOUTUBE_API_KEY", "optional trend scanner"),
         ):
             lines.append(f"{key:<20} {'set' if optional_key(key) else 'not set':<8} {why}")
 
@@ -1113,12 +1459,14 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.produce_tab = ProduceTab(self)
         self.library_tab = LibraryTab(self)
+        self.scanner_tab = ScannerTab(self)
         self.topics_tab = TopicsTab(self)
         self.settings_tab = SettingsTab(self)
 
         for widget, label in (
             (self.produce_tab, "Produce"),
             (self.library_tab, "Library"),
+            (self.scanner_tab, "Scanner"),
             (self.topics_tab, "Topics"),
             (self.settings_tab, "Settings"),
         ):

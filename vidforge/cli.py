@@ -10,6 +10,7 @@ from pathlib import Path
 from . import fonts, history, ideation, llm, pipeline
 from .config import MUSIC_DIR, PROJECT_ROOT, Config, optional_key, output_root
 from .ffmpeg_utils import FFmpegError, ffmpeg_bin, ffprobe_bin, has_filter
+from .progress import ConsoleReporter
 
 LAUNCHD_LABEL = "com.andreas.vidforge"
 
@@ -169,6 +170,71 @@ def cmd_upload(args: argparse.Namespace) -> int:
 # --------------------------------------------------------------------------
 
 
+def cmd_scan(args: argparse.Namespace) -> int:
+    from . import trends
+
+    cfg = Config.load()
+    try:
+        result = trends.scan(
+            cfg,
+            region=args.region,
+            category_id=args.category,
+            limit=args.limit,
+            cluster=not args.no_cluster,
+            refresh=args.refresh,
+            reporter=ConsoleReporter(),
+        )
+    except trends.MissingKey as exc:
+        print(f"\n{exc}\n", file=sys.stderr)
+        return 1
+    except trends.TrendsError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
+        return 0
+
+    print(f"\nTrending in {result.region} — {result.fetched_at}")
+    print(f"{len(result.videos)} videos · {result.quota_units} quota units\n")
+
+    header = (
+        f"{'#':>3}  {'views':>7} {'views/h':>8} {'engage':>7} {'v/sub':>6} "
+        f"{'age':>6}  {'format':<15} {'category':<18} title"
+    )
+    print(header)
+    print("-" * len(header))
+    for i, video in enumerate(result.videos[: args.top], 1):
+        age = f"{video.age_hours:.0f}h" if video.age_hours < 72 else f"{video.age_hours / 24:.0f}d"
+        vps = f"{video.views_per_subscriber:.2f}" if video.subscribers else "—"
+        print(
+            f"{i:>3}  {trends.compact(video.views):>7} "
+            f"{trends.compact(video.views_per_hour):>8} "
+            f"{video.engagement_rate * 100:>6.1f}% {vps:>6} {age:>6}  "
+            f"{video.bucket:<15} {video.category[:18]:<18} {video.title[:58]}"
+        )
+
+    if result.clusters:
+        print("\nTopic veins (highest velocity first)\n")
+        for cluster in result.clusters:
+            print(
+                f"  {cluster.label}  —  {cluster.videos} videos · "
+                f"{trends.compact(cluster.total_views)} views · "
+                f"{trends.compact(cluster.avg_views_per_hour)}/h avg"
+            )
+            print(f"      {cluster.why_it_travels}")
+            print(f"      → suggested: {cluster.suggested_topic}")
+        if args.queue:
+            added = ideation.append_to_queue(
+                [c.suggested_topic for c in result.clusters if c.suggested_topic]
+            )
+            print(f"\nadded {added} suggested topic(s) to topics.txt")
+        else:
+            print("\n(re-run with --queue to add the suggested topics to topics.txt)")
+
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     print("vidforge environment check\n")
     problems = 0
@@ -212,6 +278,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         ("OPENAI_API_KEY", "narration, images, caption alignment"),
         ("ANTHROPIC_API_KEY", "optional Anthropic script backend"),
         ("PEXELS_API_KEY", "optional stock-photo visuals"),
+        ("YOUTUBE_API_KEY", "optional trend scanner (`main.py scan`)"),
     ):
         state = "set" if optional_key(key) else "not set"
         print(f"  {key:<20} {state:<8} ({why})")
@@ -341,6 +408,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="defaults to private; 'public' also needs youtube.enabled in config.yaml",
     )
     upload.set_defaults(func=cmd_upload)
+
+    scan = sub.add_parser("scan", help="what is pulling views on YouTube right now")
+    scan.add_argument("--region", help="ISO country code (default from config.yaml)")
+    scan.add_argument("--category", help="YouTube category id, e.g. 27=Education")
+    scan.add_argument("--limit", type=int, help="videos to fetch (max 200)")
+    scan.add_argument("--top", type=int, default=25, help="rows to print")
+    scan.add_argument("--no-cluster", action="store_true", help="skip LLM topic grouping")
+    scan.add_argument("--queue", action="store_true", help="append suggested topics")
+    scan.add_argument("--refresh", action="store_true", help="ignore the cached scan")
+    scan.add_argument("--json", action="store_true", help="raw JSON instead of a table")
+    scan.set_defaults(func=cmd_scan)
 
     doctor = sub.add_parser("doctor", help="check tools, keys and dependencies")
     doctor.set_defaults(func=cmd_doctor)

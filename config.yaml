@@ -76,6 +76,15 @@ audio:
 thumbnail:
   enabled: true
 
+trends:
+  # The Scanner reads the public trending chart. It needs a plain Google Cloud
+  # API key in YOUTUBE_API_KEY — NOT the OAuth client used for uploading.
+  region: US                  # ISO 3166-1 alpha-2: US, GB, DE, JP…
+  limit: 50                   # max 200; the chart will not paginate further
+  cluster: true               # group the videos into topic veins with the LLM
+  max_clusters: 8
+  cache_hours: 6              # reuse a scan this old before spending quota again
+
 youtube:
   enabled: false              # must be true AND --publish passed to upload
   privacy: private            # private | unlisted | public

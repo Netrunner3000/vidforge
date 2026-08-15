@@ -14,7 +14,7 @@ python main.py run --topic "How undersea cables carry the entire internet"
 
 ## The app
 
-`app.py` is a PySide6 desktop app with four tabs:
+`app.py` is a PySide6 desktop app with five tabs:
 
 - **Produce** — type a topic (or leave it blank to take the next queued one), set
   length, visuals and voice, then watch it build. Live stage indicators, a
@@ -22,6 +22,9 @@ python main.py run --topic "How undersea cables carry the entire internet"
   everything finished so far is kept.
 - **Library** — every video produced, with thumbnail, description, tags and
   chapters. Play it, show the files, resume an unfinished one, or upload it.
+- **Scanner** — what is pulling views on YouTube right now, with velocity and
+  engagement metrics, grouped into topic veins you can send to the queue. See
+  [The Scanner](#the-scanner).
 - **Topics** — the queue, editable in place, plus a "Suggest 10 more" button.
 - **Settings** — channel identity, narrator voice, the public-upload switch, API
   key status and the same environment checks as `main.py doctor`.
@@ -61,6 +64,7 @@ what's missing before you spend anything.
 | Command | What it does |
 |---|---|
 | `run` | Produce a video. `--topic`, `--count N`, `--resume SLUG`, `--seconds`, `--visuals`, `--provider` |
+| `scan` | Trending videos + topic veins. `--region`, `--category`, `--limit`, `--queue`, `--refresh`, `--json` |
 | `topics` | Show the queue; `--suggest 10` generates new ideas, `--add "..."` appends |
 | `list` | Everything produced so far |
 | `upload SLUG` | Upload to YouTube (private by default — see below) |
@@ -139,50 +143,58 @@ python main.py schedule --at 03:30 --count 1
 writes a launchd plist and prints the two commands to install it. The scheduled
 job renders only — uploads stay manual.
 
+## The Scanner
+
+What is pulling views on YouTube right now, and which topic veins sit underneath
+it. Available as the **Scanner** tab or `main.py scan`.
+
+```bash
+python main.py scan --region US --category 27 --queue
+```
+
+It reads YouTube's official trending chart (`videos.list(chart="mostPopular")`).
+That is public data, so it needs a plain **`YOUTUBE_API_KEY`** — *not* the OAuth
+client used for uploading; the two are separate credentials. Create one by
+enabling [YouTube Data API v3](https://console.cloud.google.com/apis/library/youtube.googleapis.com)
+→ Credentials → API key. A full scan costs about 4 of the 10,000 free daily
+quota units and is cached for 6 hours, so browsing is free.
+
+**Raw views are the least useful column.** The derived metrics are what "right
+now" actually means:
+
+| Metric | Why it's there |
+|---|---|
+| **Views/h** | Velocity. A 400K-view video 2 hours old is climbing faster than a 9M-view video from four days ago — and the table sorts on this by default. |
+| **Engage** | (likes + comments) / views. Separates something people *react to* from something merely served to them. |
+| **V/sub** | Views per subscriber. Did the topic travel beyond the channel's own base, or is it just a big channel posting? |
+| **Age** | Separates a spike from a slow burn. |
+| **Format** | Duration bucket — which length is winning in this category right now. |
+
+Click any column to re-sort (numerically, not alphabetically), or double-click a
+row to open the video.
+
+**Topic veins** are the point of the tab. The chart returns individual videos, so
+the configured LLM groups them into themes with aggregate view totals, a note on
+why each is travelling, and a suggested topic in that vein that fits *your*
+niche. **Send suggestion to queue** drops it straight into `topics.txt`, ready
+for the Produce tab.
+
+Scans are cached to `output/trends/<region>-<date>.json`. The tab opens showing
+the most recent one, and keeping the files means week-over-week deltas are
+possible later.
+
+**Two limits worth keeping in view.** This is trending **videos in a region**,
+not search demand — Google Trends has no official API and `pytrends` is
+unofficial and rate-limited, so treat the chart as a proxy. And chasing whatever
+spikes today is precisely the mass-produced-repetition pattern YouTube
+demonetises (see below). The value here is spotting durable veins inside your
+own niche, which is why the clustering prompt is told to prefer durable interest
+over passing news and to flag clusters that don't suit the channel.
+
 ## Roadmap
 
-- **Trend scanner** — a Scanner tab (and `main.py scan`) listing what is pulling
-  the most views on YouTube right now, with the metrics that matter, and a
-  "Send to queue" button on each row that drops a topic straight into
-  `topics.txt`.
-
-  *Data source:* YouTube Data API v3 `videos.list(chart="mostPopular")` — the
-  official trending endpoint. It reads public data, so it needs only a plain API
-  key (`YOUTUBE_API_KEY`), **not** the OAuth client used for uploading. Costs 1
-  quota unit per call against the default 10,000/day, so scanning is effectively
-  free. Scoped by `regionCode` and `videoCategoryId`; 50 results per page, 200
-  per chart.
-
-  *Metrics to show.* Straight from the API: views, likes, comments, published-at,
-  duration, channel, category, tags. The derived ones carry the actual signal and
-  are what "at the moment" really means:
-  - **views per hour since publish** — velocity, so a 3-day-old video with 2M
-    views doesn't outrank a 6-hour-old one climbing faster
-  - **engagement rate** — (likes + comments) / views
-  - **views per subscriber** — did the topic travel beyond the channel's base, or
-    is it just a big channel posting?
-  - **duration bucket** — whether the format winning right now is short, mid or
-    long-form
-  - **age** — days since publish, to separate a spike from a slow burn
-
-  *Topics, not just videos.* The chart returns individual videos, so titles and
-  tags need clustering into topic labels with aggregate view totals — the
-  existing LLM backend (`vidforge/llm.py`) can do this in one structured call,
-  the same way `ideation.suggest` works today.
-
-  *Cache* each scan to `output/trends/<date>.json`: it keeps repeat opens off the
-  quota, and once there are two snapshots it enables week-over-week deltas, which
-  are more useful than any single-day ranking.
-
-  *Two honest limits to keep in view.* This is trending **videos in a region**,
-  not search demand — Google Trends has no official API and `pytrends` is
-  unofficial and rate-limited, so treat the chart as a proxy. And chasing
-  whatever spikes today is precisely the mass-produced-repetition pattern
-  YouTube demonetises (see below); the value here is spotting durable topic
-  veins inside your own niche, not copying the chart.
-
-### Known gaps
-
+- **Week-over-week deltas** — two or more cached scans are enough to show which
+  veins are growing rather than merely large; the data is already on disk.
 - `visuals.source: pexels` is implemented but has never been run — there was no
   `PEXELS_API_KEY` available when it was built.
 - `video.transition: cut` is implemented and compiles into the filter graph, but
@@ -226,6 +238,7 @@ vidforge/
 ├── motion.py       Ken Burns clips (supersampled to kill zoompan jitter)
 ├── assemble.py     xfade chain, caption burn, music duck, loudness master
 ├── thumbnail.py    background + outlined text
+├── trends.py       YouTube trending chart, metrics, topic clustering
 ├── metadata.py     title/description/tags/chapters
 ├── youtube.py      gated OAuth upload
 ├── pipeline.py     stage orchestration + resume
