@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 
-from . import fonts, history, ideation, llm, pipeline
+from . import courses, fonts, history, ideation, llm, pipeline
 from .config import MUSIC_DIR, PROJECT_ROOT, Config, optional_key, output_root
 from .ffmpeg_utils import FFmpegError, ffmpeg_bin, ffprobe_bin, has_filter
 from .progress import ConsoleReporter
@@ -166,7 +166,61 @@ def cmd_upload(args: argparse.Namespace) -> int:
 
 
 # --------------------------------------------------------------------------
-# doctor / schedule
+# course
+# --------------------------------------------------------------------------
+
+
+def cmd_course(args: argparse.Namespace) -> int:
+    """Generate a PowerPoint course presentation from a topic or outline."""
+    cfg = Config.load()
+    reporter = ConsoleReporter()
+
+    ok, message = llm.provider_available(cfg)
+    if not ok:
+        print(f"error: {message}", file=sys.stderr)
+        return 1
+
+    gen = courses.CourseGenerator(output_root=output_root())
+
+    try:
+        if args.outline:
+            # Load outline from file
+            outline_path = Path(args.outline)
+            if not outline_path.exists():
+                print(f"error: outline file not found: {args.outline}", file=sys.stderr)
+                return 1
+            with open(outline_path) as f:
+                outline = f.read()
+            output_path = gen.create_presentation(
+                topic=args.topic or outline_path.stem,
+                outline=outline,
+                output_file=args.output,
+                progress=reporter
+            )
+        else:
+            # Generate outline from topic
+            if not args.topic:
+                print("error: either --topic or --outline must be provided", file=sys.stderr)
+                return 1
+            output_path = gen.create_presentation(
+                topic=args.topic,
+                output_file=args.output,
+                progress=reporter
+            )
+
+        print(f"✅ Course generated: {output_path}")
+        if args.open:
+            import subprocess
+            subprocess.run(["open", str(output_path)])
+        return 0
+
+    except Exception as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+
+# --------------------------------------------------------------------------
+# doctor / scan / schedule
 # --------------------------------------------------------------------------
 
 
@@ -289,6 +343,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     for module, why in (
         ("PIL", "thumbnails"),
         ("yaml", "config"),
+        ("pptx", "course generation"),
         ("googleapiclient", "YouTube upload (optional)"),
     ):
         try:
@@ -419,6 +474,13 @@ def build_parser() -> argparse.ArgumentParser:
     scan.add_argument("--refresh", action="store_true", help="ignore the cached scan")
     scan.add_argument("--json", action="store_true", help="raw JSON instead of a table")
     scan.set_defaults(func=cmd_scan)
+
+    course = sub.add_parser("course", help="generate a PowerPoint course presentation")
+    course.add_argument("--topic", help="course topic for outline generation")
+    course.add_argument("--outline", metavar="FILE", help="path to pre-structured course outline file")
+    course.add_argument("--output", metavar="FILENAME", help="output .pptx filename (default: auto-generated)")
+    course.add_argument("--open", action="store_true", help="open the file in your default viewer")
+    course.set_defaults(func=cmd_course)
 
     doctor = sub.add_parser("doctor", help="check tools, keys and dependencies")
     doctor.set_defaults(func=cmd_doctor)

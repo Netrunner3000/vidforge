@@ -4,6 +4,8 @@ Autonomously turns a topic into a finished, narrated, illustrated YouTube video:
 script → voiceover → per-scene imagery → Ken Burns motion → burned-in captions →
 music bed → thumbnail → metadata.
 
+Also generates structured PowerPoint course presentations from topics or outlines.
+
 There is a desktop app and a CLI. Both drive the same pipeline.
 
 ```bash
@@ -64,6 +66,7 @@ what's missing before you spend anything.
 | Command | What it does |
 |---|---|
 | `run` | Produce a video. `--topic`, `--count N`, `--resume SLUG`, `--seconds`, `--visuals`, `--provider` |
+| `course` | Generate a PowerPoint course. `--topic "..."`, `--outline FILE`, `--output FILENAME`, `--open` |
 | `scan` | Trending videos + topic veins. `--region`, `--category`, `--limit`, `--queue`, `--refresh`, `--json` |
 | `topics` | Show the queue; `--suggest 10` generates new ideas, `--add "..."` appends |
 | `list` | Everything produced so far |
@@ -234,6 +237,7 @@ vidforge/
 ├── script.py       topic -> scenes, metadata, cost estimate
 ├── voice.py        per-scene TTS -> single narration track + timings
 ├── captions.py     word timing (whisper|estimate) -> ASS or PNG overlay
+├── courses.py      PowerPoint course generation (topic or outline -> .pptx)
 ├── visuals.py      per-scene imagery, with graceful degradation
 ├── motion.py       Ken Burns clips (supersampled to kill zoompan jitter)
 ├── assemble.py     xfade chain, caption burn, music duck, loudness master
