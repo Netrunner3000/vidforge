@@ -26,3 +26,6 @@ logs/
 assets/icon.iconset/
 assets/icon.icns
 assets/icon.png
+
+# Stale pre-migration git directory
+.git.old/
