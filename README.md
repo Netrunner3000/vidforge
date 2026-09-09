@@ -8,6 +8,28 @@ Also generates structured PowerPoint course presentations from topics or outline
 
 There is a desktop app and a CLI. Both drive the same pipeline.
 
+> **Imprint drives it too.** `imprint`, the app this repo is nested inside,
+> imports this package as its **Video** mode through
+> `imprint/services/video_studio.py` — it does not keep a copy. Three things
+> follow from that, and they matter when changing anything here:
+>
+> * **`pipeline.produce()`, `progress.Reporter` and `config.Config` are a public
+>   API now.** Imprint's Qt worker subclasses `Reporter` and drives `produce()`
+>   directly. Renaming a stage key in `progress.STAGES` or changing `produce()`'s
+>   signature breaks the Video tab, silently, in a different repository.
+> * **Config keys are the extension point.** Imprint renders vertical social
+>   clips by overriding `video.width` / `video.height`, `visuals.image_size`,
+>   `script.target_seconds` and `script.scene_seconds` — no second code path.
+>   Keep those keys working.
+> * **The data directory is shared.** Frozen, both apps resolve `PROJECT_ROOT`
+>   to `~/Library/Application Support/vidforge/`, so they share one config, one
+>   output library and one history. A render started in either shows up in both.
+>
+> Imprint's `Imprint.spec` ships this package as source plus `config.yaml`,
+> `topics.txt` and `assets/`. It stays a standalone app; nothing here depends on
+> Imprint.
+
+
 ```bash
 ./build_app.sh                 # builds vidforge.app into /Applications
 python app.py                  # or just run the GUI from the repo

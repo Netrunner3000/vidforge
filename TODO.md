@@ -8,6 +8,13 @@
 
 ## v2 — current
 
+- [ ] `P2` `docs` `@ai` **This pipeline has a second consumer now.** `imprint` imports
+  `vidforge` as its Video mode rather than vendoring it, so `pipeline.produce()`,
+  `progress.Reporter`/`STAGES` and the `video.*` / `script.*` config keys are a public API
+  across repository boundaries — a rename here breaks a tab there, silently. Worth a
+  compatibility note in any PR that touches those, and eventually a test on Imprint's side
+  that fails loudly when a stage key disappears.
+
 - [ ] `P1` `feature` `@me` **Get a `PEXELS_API_KEY`.** `visuals.source: pexels` is implemented but has never been run — there was no key available when it was built.
 - [ ] `P1` `testing` `@ai` Exercise `video.transition: cut` end to end. It compiles into the filter graph but only the `xfade` path has been run.
 - [ ] `P1` `feature` `@ai` Week-over-week trend deltas — two or more cached scans are enough to show which veins are growing rather than merely large, and the data is already on disk
