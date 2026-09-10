@@ -1,7 +1,7 @@
 """One still image per scene.
 
 Three sources, in descending order of cost and quality:
-  ai       — gpt-image-1 from the scene's visual_prompt
+  ai       — the selected GPT Image model from the scene's visual_prompt
   pexels   — stock photo search (needs PEXELS_API_KEY)
   gradient — procedurally drawn card, no network, no cost
 
@@ -48,7 +48,7 @@ def _generate_ai(cfg: Config, prompt: str, dst: Path) -> None:
     for attempt in range(1, RETRIES + 1):
         try:
             result = _openai().images.generate(
-                model=cfg.get("visuals.image_model", "gpt-image-1"),
+                model=cfg.get("visuals.image_model", "gpt-image-2.5-flare"),
                 prompt=full,
                 size=cfg.get("visuals.image_size", "1536x1024"),
                 quality=cfg.get("visuals.image_quality", "medium"),

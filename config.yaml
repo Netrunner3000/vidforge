@@ -31,7 +31,7 @@ voice:
 
 visuals:
   source: ai                  # ai | pexels | gradient
-  image_model: gpt-image-1
+  image_model: gpt-image-2.5-flare
   image_size: "1536x1024"
   image_quality: medium       # low | medium | high
   style_suffix: >-
