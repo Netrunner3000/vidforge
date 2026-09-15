@@ -106,7 +106,7 @@ python main.py run --resume 20260802-1844-norways-giant-mirrors
 ## Cost and speed
 
 Roughly **$1.50–2.50** and **20–35 minutes** for an 8-minute video, dominated by
-image generation (one `gpt-image-1` render per ~14s of narration) and the x264
+image generation (one `gpt-image-2.5-flare` render per ~14s of narration) and the x264
 encode. The exact estimate for each render is written to `manifest.json`.
 
 To iterate on pacing and captions for free, skip the paid stages:
@@ -123,9 +123,9 @@ override it per-run. The parts worth knowing:
 
 - **`script.provider`** — `openai` (default, `gpt-4o`) or `anthropic`
   (`claude-opus-5`). Narration, imagery and caption alignment always use OpenAI.
-- **`visuals.source`** — `ai` (gpt-image-1), `pexels` (stock, needs a key), or
-  `gradient` (free procedural cards). A failure on any one scene degrades to a
-  gradient rather than failing the render.
+- **`visuals.source`** — `ai` (`visuals.image_model`, default `gpt-image-2.5-flare`),
+  `pexels` (stock, needs a key), or `gradient` (free procedural cards). A failure
+  on any one scene degrades to a gradient rather than failing the render.
 - **`video.transition`** — `xfade` for crossfades, `cut` for hard cuts. Cuts are
   substantially faster; crossfades re-encode the overlap.
 - **`captions.renderer`** — `auto` picks `ass` when your ffmpeg has libass, and

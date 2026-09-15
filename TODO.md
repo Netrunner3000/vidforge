@@ -8,6 +8,8 @@
 
 ## v2 — current
 
+- [x] `P2` `feature` `@ai` Switched the default `visuals.image_model` from `gpt-image-1` to `gpt-image-2.5-flare` (config.yaml default + visuals.py fallback), matching what ships now.
+
 - [ ] `P2` `docs` `@ai` **This pipeline has a second consumer now.** `imprint` imports
   `vidforge` as its Video mode rather than vendoring it, so `pipeline.produce()`,
   `progress.Reporter`/`STAGES` and the `video.*` / `script.*` config keys are a public API
