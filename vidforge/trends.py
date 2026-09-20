@@ -212,8 +212,15 @@ def api_key() -> str:
 
 
 def _get(endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
-    params = {**params, "key": api_key()}
-    response = requests.get(f"{API_ROOT}/{endpoint}", params=params, timeout=TIMEOUT)
+    key = api_key()
+    params = {**params, "key": key}
+    try:
+        response = requests.get(
+            f"{API_ROOT}/{endpoint}", params=params, timeout=TIMEOUT)
+    except requests.RequestException as exc:
+        # A connection error's message embeds the full request URL — key
+        # included. Redact it before it can reach a log or the UI.
+        raise TrendsError(str(exc).replace(key, "<YOUTUBE_API_KEY>"))
 
     if response.status_code == 403:
         reasons = {

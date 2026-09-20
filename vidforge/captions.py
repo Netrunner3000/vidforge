@@ -297,10 +297,14 @@ def _build_overlay(
 
     concat = out_dir / "captions.txt"
     lines = ["ffconcat version 1.0\n"]
+    # Same single-quote escaping as ffmpeg_utils.concat_demux — a quote in
+    # the output directory's path broke the list file silently.
     for path, duration in entries:
-        lines.append(f"file '{path.resolve()}'\n")
+        escaped = str(path.resolve()).replace("'", "'\\''")
+        lines.append(f"file '{escaped}'\n")
         lines.append(f"duration {duration:.3f}\n")
-    lines.append(f"file '{entries[-1][0].resolve()}'\n")
+    last = str(entries[-1][0].resolve()).replace("'", "'\\''")
+    lines.append(f"file '{last}'\n")
     concat.write_text("".join(lines), encoding="utf-8")
 
     return CaptionTrack(
