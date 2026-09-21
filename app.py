@@ -60,7 +60,8 @@ from vidforge.config import (
     optional_key,
     output_root,
 )
-from vidforge.ffmpeg_utils import FFmpegError, ffmpeg_bin, has_filter
+from vidforge.ffmpeg_utils import (FFmpegError, ffmpeg_bin, has_filter,
+                                    terminate_active)
 from vidforge.progress import STAGES, Cancelled, Reporter
 
 APP_TITLE = "vidforge"
@@ -258,6 +259,11 @@ class ProduceWorker(QThread):
 
     def stop(self) -> None:
         self.reporter.cancel()
+        # Also kill an in-flight ffmpeg child: the cancel flag is only polled
+        # between steps, so a long encode used to run to completion after
+        # Stop and, on quit, outlive the app as an orphan. Safe mid-write now
+        # that stage outputs land under temp names and rename on completion.
+        terminate_active()
 
     def run(self) -> None:  # noqa: D102 - QThread entry point
         try:
@@ -276,8 +282,13 @@ class ProduceWorker(QThread):
         except Cancelled:
             self.cancelled.emit()
         except Exception as exc:  # noqa: BLE001 - surfaced in the UI
-            self.failed.emit(f"{exc}")
-            self.log.emit(traceback.format_exc())
+            if self.reporter.cancelled:
+                # Stop terminated an in-flight ffmpeg child; the resulting
+                # error is the cancellation, not a failure.
+                self.cancelled.emit()
+            else:
+                self.failed.emit(f"{exc}")
+                self.log.emit(traceback.format_exc())
 
 
 class SuggestWorker(QThread):

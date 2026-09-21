@@ -169,12 +169,16 @@ def render_scenes(
             continue
 
         reporter.log(f"scene {scene['index'] + 1}/{total} illustrating")
+        # Temp name + rename, same as voice.py/motion.py: a download killed
+        # mid-write must never leave a large-enough partial at the cached path.
+        tmp = dst.with_suffix(".tmp.png")
         try:
-            generate(cfg, source, scene["visual_prompt"], dst)
+            generate(cfg, source, scene["visual_prompt"], tmp)
         except Exception as exc:  # noqa: BLE001 - degrade one scene, not the run
             reporter.log(f"! {source} failed for scene {scene['index'] + 1}: {exc}")
             reporter.log("  falling back to a gradient card for this scene")
-            _generate_gradient(cfg, scene["visual_prompt"], dst)
+            _generate_gradient(cfg, scene["visual_prompt"], tmp)
+        tmp.replace(dst)
 
         paths.append(dst)
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import threading
 from functools import lru_cache
 from pathlib import Path
 
@@ -40,21 +41,50 @@ def ffprobe_bin() -> str:
     return _binary("ffprobe")
 
 
+_ACTIVE_LOCK = threading.Lock()
+_ACTIVE: set[subprocess.Popen] = set()
+
+
+def terminate_active() -> None:
+    """Terminate in-flight ffmpeg-family children.
+
+    Called when Stop is pressed or the app quits. subprocess.run gave the
+    caller no handle, so a long encode ran to completion after Stop and, on
+    quit, outlived the app as an orphan. Killing mid-write is safe now that
+    stage outputs are written to temp names and renamed on completion.
+    """
+    with _ACTIVE_LOCK:
+        procs = list(_ACTIVE)
+    for proc in procs:
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+
+
 def run(args: list[str], *, cwd: Path | None = None, quiet: bool = True) -> None:
     """Run an ffmpeg-family command, raising with the tail of stderr on failure."""
-    proc = subprocess.run(
+    proc = subprocess.Popen(
         args,
         cwd=str(cwd) if cwd else None,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
     )
+    with _ACTIVE_LOCK:
+        _ACTIVE.add(proc)
+    try:
+        _out, err = proc.communicate()
+    finally:
+        with _ACTIVE_LOCK:
+            _ACTIVE.discard(proc)
     if proc.returncode != 0:
-        tail = "\n".join((proc.stderr or "").strip().splitlines()[-25:])
+        tail = "\n".join((err or "").strip().splitlines()[-25:])
         raise FFmpegError(
             f"command failed ({proc.returncode}): {' '.join(args[:3])} ...\n{tail}"
         )
-    if not quiet and proc.stderr:
-        print(proc.stderr)
+    if not quiet and err:
+        print(err)
 
 
 def ffmpeg(args: list[str], *, cwd: Path | None = None) -> None:

@@ -7,6 +7,7 @@ manifest.json, so re-running a crashed job resumes instead of starting over.
 from __future__ import annotations
 
 import json
+import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -98,6 +99,41 @@ def _load_or_create(slug: str | None, plan: dict[str, Any] | None) -> Build:
     return Build(slug=slug, root=root, plan=plan)
 
 
+def _geometry(cfg: Config) -> dict[str, Any]:
+    """The config values cached scene files bake in."""
+    return {
+        "width": cfg.get("video.width"),
+        "height": cfg.get("video.height"),
+        "fps": cfg.get("video.fps"),
+        "image_size": cfg.get("visuals.image_size"),
+    }
+
+
+def _check_geometry(cfg: Config, build: Build, reporter: Reporter) -> None:
+    """Invalidate cached scenes when a resume runs under different geometry.
+
+    A 9:16 clip resumed under 16:9 defaults used to mix cached portrait
+    frames with fresh landscape ones — resume trusted whatever files were
+    on disk. Audio is unaffected (an mp3 has no geometry), so narration
+    stays cached either way.
+    """
+    stamped = (build.manifest.get("config") or {}).get("geometry")
+    current = _geometry(cfg)
+    if stamped == current:
+        return
+    if stamped:
+        reporter.log("config drift: geometry changed since this build started")
+        reporter.log(f"  was {stamped}")
+        reporter.log(f"  now {current} — discarding cached images and clips")
+        for cache_dir in (build.image_dir, build.clip_dir):
+            if cache_dir.exists():
+                shutil.rmtree(cache_dir)
+    # Stamp (or adopt, for builds from before the stamp existed — their
+    # drift is unknowable, so their caches are left alone).
+    build.manifest.setdefault("config", {})["geometry"] = current
+    build.save_manifest()
+
+
 def produce(
     cfg: Config,
     *,
@@ -117,6 +153,7 @@ def produce(
             raise RuntimeError(f"{resume_slug} has no script.json to resume from")
         reporter.log(f"resuming {build.slug}")
         reporter.log(f"title: {build.plan['title']}")
+        _check_geometry(cfg, build, reporter)
     else:
         chosen = ideation.next_topic(cfg, topic)
         reporter.log(f"topic: {chosen}")
@@ -134,6 +171,8 @@ def produce(
                 "script_provider": cfg.get("script.provider"),
                 "visuals_source": cfg.get("visuals.source"),
                 "voice": cfg.get("voice.voice"),
+                # The geometry cached scene files bake in; checked on resume.
+                "geometry": _geometry(cfg),
             },
             "stages": {},
         }

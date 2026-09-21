@@ -83,7 +83,13 @@ def render_scenes(
             reporter.log(f"scene {scene['index'] + 1}/{total} narration cached")
         else:
             reporter.log(f"scene {scene['index'] + 1}/{total} narrating")
-            _speak(cfg, scene["narration"], dst)
+            # Temp name + rename: the size check above is the only resume
+            # validation, so a generation killed mid-write used to leave a
+            # large-enough partial at the final path that poisoned the
+            # rerun. A partial can now only ever sit under the .tmp name.
+            tmp = dst.with_suffix(".tmp.mp3")
+            _speak(cfg, scene["narration"], tmp)
+            tmp.replace(dst)
         paths.append(dst)
 
     return paths

@@ -158,10 +158,16 @@ def estimate_cost_usd(cfg: Config, data: dict[str, Any]) -> dict[str, float]:
     words = data.get("word_count", 0)
     chars = words * 6
 
-    # gpt-4o-mini-tts: ~$0.60/1M input tokens, ~4 chars per token.
-    tts = chars / 4 / 1_000_000 * 0.60
-    # gpt-image-1 medium quality landscape, ~$0.04/image, plus the thumbnail.
-    images = (scenes + 1) * 0.04 if cfg.get("visuals.source") == "ai" else 0.0
+    # gpt-4o-mini-tts at ~$0.015 per 1k characters all-in — audio *output*
+    # tokens dominate, so the old input-only formula (chars/4/1M × $0.60)
+    # understated narration ~100×. Matches Imprint's per-unit rate
+    # (openai_tts_per_1k_chars) so the two estimates agree.
+    tts = chars / 1000.0 * 0.015
+    # Medium-quality scene frame plus the thumbnail. 0.06 matches Imprint's
+    # per-unit reserve for the current GPT Image models (its
+    # config/pricing.json `openai_image` rows) — the two estimates had
+    # drifted ($0.04 here, from the retired gpt-image-1 era, vs $0.06 there).
+    images = (scenes + 1) * 0.06 if cfg.get("visuals.source") == "ai" else 0.0
     # whisper-1: $0.006 per minute of audio.
     whisper = (
         (words / 155) * 0.006

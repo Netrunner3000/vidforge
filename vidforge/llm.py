@@ -138,7 +138,7 @@ def complete_json(
                 )
             if provider == "openai":
                 return _complete_openai(
-                    model=cfg.get("script.openai_model", "gpt-4o"),
+                    model=cfg.get("script.openai_model", "gpt-5.6-terra"),
                     system=system,
                     user=user,
                     schema=schema,

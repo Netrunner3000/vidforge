@@ -132,7 +132,11 @@ def render_all(
             reporter.log(f"clip {i + 1}/{total} cached")
         else:
             reporter.log(f"clip {i + 1}/{total} rendering ({exact:.1f}s)")
-            render_clip(cfg, image, exact, dst, i)
+            # Temp name + rename, same as voice.py: a killed encode must
+            # never leave a large-enough partial at the cached path.
+            tmp = dst.with_suffix(".tmp.mp4")
+            render_clip(cfg, image, exact, tmp, i)
+            tmp.replace(dst)
         clips.append(dst)
         durations.append(exact)
 
