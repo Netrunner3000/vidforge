@@ -7,6 +7,9 @@ source .venv/bin/activate
 uv pip install -q pyinstaller
 
 python make_icon.py
+# A frozen bundle has no .git, so record the build it was made from.
+python scripts/stamp_version.py
+
 
 rm -rf build dist
 
@@ -17,6 +20,8 @@ pyinstaller --noconfirm --windowed \
   --name "vidforge" \
   --icon assets/icon.icns \
   --add-data "config.yaml:." \
+  --add-data "VERSION:." \
+  --add-data "_build_info.json:." \
   --add-data "topics.txt:." \
   --add-data ".env.example:." \
   --collect-submodules vidforge \

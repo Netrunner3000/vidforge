@@ -51,7 +51,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from vidforge import history, ideation, llm, pipeline, progress
+from vidforge import history, ideation, llm, pipeline, progress, version
 from vidforge.config import (
     CONFIG_PATH,
     MUSIC_DIR,
@@ -1449,7 +1449,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.cfg = Config.load()
-        self.setWindowTitle("vidforge — Video Studio")
+        self.setWindowTitle(f"vidforge {version.version_string()} — Video Studio")
         self.resize(1180, 900)
 
         root = QWidget()

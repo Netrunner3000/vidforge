@@ -29,3 +29,7 @@ assets/icon.png
 
 # Stale pre-migration git directory
 .git.old/
+
+# Build metadata, written by scripts/stamp_version.py on every build.
+# Output, not source: a checkout reads live git instead.
+_build_info.json

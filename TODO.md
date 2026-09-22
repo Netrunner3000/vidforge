@@ -32,6 +32,13 @@
 - [ ] `P2` `docs` `@ai` Document the cost estimate the script stage produces, alongside the actual spend after a run
 - [ ] `P3` `performance` `@ai` Cache TTS per scene so a re-render after a visuals-only change doesn't re-bill the whole narration
 
+- [x] `P2` `infra` `@ai` **Versioned `v<MAJOR>.<BUILD>`, shown in the window title.** The
+  arc lives in `VERSION`; the build is `git rev-list --count HEAD`, so it cannot be
+  forgotten. `vidforge/version.py` reads live git from a checkout and a `_build_info.json` stamped
+  by `scripts/stamp_version.py` from a frozen bundle, and says `v2.???` rather than
+  guessing when it has neither. This was the last packaged app in the lab still missing
+  the scheme.
+
 ## v3 — before pointing this at a real channel
 
 - [ ] `P0` `research` `@me` **Editorial angle first.** YouTube's inauthentic-content policy targets mass-produced, repetitive material; undifferentiated AI output at scale gets demonetised rather than rewarded. This is a production pipeline for a channel with a real angle, not a volume play.
