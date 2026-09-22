@@ -1,8 +1,14 @@
 # vidforge
 
-Autonomously turns a topic into a finished, narrated, illustrated YouTube video:
+Autonomously turns a topic into a finished, narrated, illustrated video:
 script → voiceover → per-scene imagery → Ken Burns motion → burned-in captions →
 music bed → thumbnail → metadata.
+
+Output geometry is configuration, not a fixed target: the same `produce()` call
+makes a long-form 16:9 video or a vertical 9:16 clip for social feeds and ads —
+which is how Imprint's Social mode asks for clips without owning a pipeline of
+its own. YouTube is the one *upload* integration (manual, behind two opt-ins);
+everything else is a file you take where you like.
 
 Also generates structured PowerPoint course presentations from topics or outlines.
 
